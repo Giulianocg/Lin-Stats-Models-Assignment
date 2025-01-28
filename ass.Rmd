@@ -1,0 +1,533 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+require(ggplot2)
+```
+
+```{r}
+data <- read.table("RPBU20102011.txt", header = TRUE, sep = " ", quote = "\"")
+data$datetime <- as.POSIXct(data$datetime, format = "%Y-%m-%d %H:%M:%S")
+#head(data)
+```
+
+```{r}
+#FIGURE 1 
+ggplot( data[500:1000, ], aes( datetime, water )) + geom_line()+ labs(
+    title = "Water level on 1/3/2010", 
+    x = "time (24h format)",  
+    y = "Water level (cm)" )+
+  theme_minimal(base_size = 15) + #
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),  # Center bold title
+    plot.subtitle = element_text(hjust = 0.5),             # Center subtitle
+    axis.text.x = element_text(angle = 45, hjust = 1)      # Rotate X-axis labels
+  )
+```
+
+```{r}
+#FIGURE 2, (each index is 10s)
+
+convolen <- 30
+avgs <- sapply(seq(convolen, nrow(data) - convolen), function(i) {
+  mean(data[(i-(convolen-1)):(i + convolen),'water'])
+})
+conv <- append(numeric(convolen-1), avgs)
+conv <- append(conv, numeric(convolen))
+
+data['conv10m'] <- conv
+
+ggplot( data[1797500:1799500, ], aes( datetime, conv10m )) + geom_line()+ labs(
+    title = "Water level on 26/9/2010",
+    subtitle = "10m moving average",
+    x = "time (24h format)",  
+    y = "Water level (cm)" )+
+  theme_minimal(base_size = 15) + #
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),  # Center bold title
+    plot.subtitle = element_text(hjust = 0.5),             # Center subtitle
+    axis.text.x = element_text(angle = 45, hjust = 1)      # Rotate X-axis labels
+  )
+```
+```{r}
+data['datenum'] = as.numeric(data[['datetime']])
+data['oscillations'] = data['water']- data['conv10m']
+```
+
+```{r}
+min_index <- 700-240
+max_index <- 700
+
+trainrange <- (min_index:max_index)         #training data
+predrange <- (max_index: (max_index + 30))  # +5 minutes
+regrange   <- (min_index: (max_index + 30)) #both
+
+t_offset <- data[min_index, 'datenum']
+data['t'] = data['datenum'] - t_offset
+```
+
+```{r}
+ggplot( data[regrange, ], aes( datenum, oscillations)) + geom_line()+ labs(
+    title = "Isolated oscillations",
+    x = "time (num)",  
+    y = "Water level (cm)" )+
+  theme_minimal(base_size = 15) + 
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),  # Center bold title
+    plot.subtitle = element_text(hjust = 0.5),             # Center subtitle
+    axis.text.x = element_text(angle = 45, hjust = 1)      # Rotate X-axis labels
+  )
+```
+
+
+
+
+```{r}
+#FIGURE 5
+  
+q4 <- glm(water ~ t + I(t^2) + I(t^3)+ I(t^4) + sin(2*pi/545 *t) + cos(2*pi/545 *t)  + sin(2*pi/205 * t) + cos(2*pi/205 *t)  + sin(2*pi/85 *t) + cos(2*pi/85 *t) , data = data[trainrange, ])
+summary(q4)
+
+plot(data[trainrange,'datetime'], data[trainrange, 'water'], type = "l", col = "blue", 
+     xlab = "Time (h)", ylab = "Water Level (cm)", main = "Fitted Linear Regression Model (single)  1/3/2010")
+lines(data[trainrange,'datenum'], predict(q4), col = "red")
+legend("topleft", legend = c("Observed", "Fitted"), col = c("blue", "red"), lty = 1)
+```
+
+
+```{r}
+#FIGURE 6
+
+q4_osci <- glm(oscillations ~  sin(2*pi/545 *t) + cos(2*pi/545 *t)  + sin(2*pi/205 * t) + cos(2*pi/205 *t)  + sin(2*pi/85 *t) + cos(2*pi/85 *t) , data = data[trainrange, ])
+summary(q4_osci)
+
+
+plot(data[trainrange,'datetime'], data[trainrange, 'oscillations'], type = "l", col = "blue", 
+     xlab = "Time (h)", ylab = "oscillations in water level (cm)", main = "Fitted Linear Regression Model (only oscillations) 1/3/2010")
+lines(data[trainrange,'datetime'], predict(q4_osci), col = "red")
+legend("topright", legend = c("Observed", "Fitted"), col = c("blue", "red"), lty = 1)
+```
+
+
+
+
+
+```{r}
+#FIGURE 7
+
+q4_trend <- glm(conv10m ~ I(t) + I(t^2) + I(t^3) + I(t^4) , data = data[trainrange, ])
+summary(q4_trend)
+
+plot(data[trainrange,'datetime'], data[trainrange, 'conv10m'], type = "l", col = "blue", 
+     xlab = "Time (h)", ylab = "Water Level (cm)", main = "Fitted Linear Regression Model (only trend) 1/3/2010")
+lines(data[trainrange,'datetime'], predict(q4_trend), col = "red")
+legend("topleft", legend = c("Observed", "Fitted"), col = c("blue", "red"), lty = 1)
+```
+
+```{r}
+#FIGURE 8 & PREDICTION (unused)
+
+#plot full fitted model
+plot(data[trainrange,'datetime'], data[trainrange, 'water'], type = "l", col = "blue", 
+     xlab = "Time (h)", ylab = "Water Level (cm)", main = "Fitted Linear Regression Model (fitted separately)")
+lines(data[trainrange,'datetime'], predict(q4_trend) + predict(q4_osci), col = "red")
+legend("topleft", legend = c("Observed", "Fitted"), col = c("blue", "red"), lty = 1)
+
+
+# Plot the extrapolation of the data
+plot(data[regrange,'datetime'], data[regrange, 'water'], type = "l", col = "blue", 
+     xlab = "Time (h)", ylab = "Water Level (cm)", main = "5 minute prediction Linear Regression Model 1/3/2010")
+lines(data[regrange,'datetime'], predict(q4_trend, data[regrange,]) + predict(q4_osci, data[regrange,]), col = "red")
+abline(v = t_offset + 10*( max_index-min_index) , col = "yellow", lwd = 2, lty = 2)
+legend("topleft", legend = c("Observed", "Fitted", "Train Data End"), 
+       col = c("blue", "red", "yellow"), lty = c(1,1,2), cex = 0.8)
+
+#Plot accuracy of extrapolation
+
+
+```
+```{r}
+#PREDICTION FUNCTIONS
+
+#5min prediction function, single
+five_min_pred_machine1 <- function(start_pred, len_train, do_plot, objective){
+  #start_pred = index at which you want to start predicting
+  #len_train = how many indices you want to use to predict
+  #do_plot: BOOLEAN, do yu want to plot the prediction?
+  #Objective: 1= error after 5 mins
+  #           2= error after 1 min
+  
+
+min_index <- start_pred - len_train
+
+trainrange <- (min_index : start_pred)  #training range
+predrange <- (start_pred: (start_pred + 30))         # +5 minutes
+regrange   <- (min_index: (start_pred + 30))         #both
+
+t_offset <- data[min_index, 'datenum']
+data['t'] = data['datenum'] - t_offset
+
+q4 <- glm(water ~ t + I(t^2) + I(t^3)+ I(t^4) + sin(2*pi/545 *t) + cos(2*pi/545 *t)  + sin(2*pi/205 * t) + cos(2*pi/205 *t)  + sin(2*pi/85 *t) + cos(2*pi/85 *t) , data = data[trainrange, ])
+
+if (do_plot == TRUE){
+print(summary(q4))
+# Plot the extrapolation of the data
+plot(data[regrange,'datetime'], data[regrange, 'water'], type = "l", col = "blue", 
+ xlab = "Time (h)", ylab = "Water Level (cm)", main = "5 minute prediction Linear Regression Model")
+lines(data[regrange,'datetime'], predict(q4, data[regrange,]), col = "red")
+abline(v = t_offset + 10*(len_train) , col = "yellow", lwd = 2, lty = 2)
+legend("topleft", legend = c("Observed", "Fitted", "Train Data End"), 
+   col = c("blue", "red", "yellow"), lty = c(1,1,2), cex = 0.8)}
+  
+if (objective == 1){ #err after 5
+    five_min_pred <- tail(predict(q4, data[regrange,]), 1)
+    five_min_err <- five_min_pred - data[start_pred+30, 'water']
+    five_min_err
+  } else if (objective == 2){ #err after 1
+    one_min_pred <- head(tail(predict(q4, data[regrange,]), 21), 1)
+    one_min_err <- one_min_pred - data[start_pred+30, 'water']
+    one_min_err
+  } 
+
+}
+
+#5min prediction function, separate
+five_min_pred_machine2 <- function(start_pred, len_train, do_plot, objective){
+  #start_pred = index at which you want to start predicting
+  #len_train = how many indices you want to use to predict
+  #do_plot: BOOLEAN, do yu want to plot the prediction?
+  #Objective: 1= error after 5 mins
+  #           2= error after 1 min
+  
+
+min_index <- start_pred - len_train
+
+trainrange <- (min_index : start_pred)  #training range
+predrange <- (start_pred: (start_pred + 30))         # +5 minutes
+regrange   <- (min_index: (start_pred + 30))         #both
+
+t_offset <- data[min_index, 'datenum']
+data['t'] = data['datenum'] - t_offset
+
+q4_osci <- glm(oscillations ~  sin(2*pi/545 *t) + cos(2*pi/545 *t)  + sin(2*pi/205 * t) + cos(2*pi/205 *t)  + sin(2*pi/85 *t) + cos(2*pi/85 *t) , data = data[trainrange, ])
+
+q4_trend <- glm(conv10m ~ I(t) + I(t^2) + I(t^3) + I(t^4) , data = data[trainrange, ])
+
+if (do_plot == TRUE){
+print(summary(q4_osci))
+print(summary(q4_trend))
+# Plot the extrapolation of the data
+plot(data[regrange,'datetime'], data[regrange, 'water'], type = "l", col = "blue", 
+ xlab = "Time (h)", ylab = "Water Level (cm)", main = "5 minute prediction Linear Regression Model (fitted separately)")
+lines(data[regrange,'datetime'], predict(q4_trend, data[regrange,]) + predict(q4_osci, data[regrange,]), col = "red")
+abline(v = t_offset + 10*(len_train) , col = "yellow", lwd = 2, lty = 2)
+legend("topleft", legend = c("Observed", "Fitted", "Train Data End"), 
+   col = c("blue", "red", "yellow"), lty = c(1,1,2), cex = 0.8)}
+  
+if (objective == 1){ #err after 5
+    five_min_pred <- tail(predict(q4_trend, data[regrange,]) + predict(q4_osci, data[regrange,]), 1)
+    five_min_err <- five_min_pred - data[start_pred+30, 'water']
+    five_min_err
+  } else if (objective == 2){ #err after 1
+    one_min_pred <- head(tail(predict(q4_trend, data[regrange,]) + predict(q4_osci, data[regrange,]), 21), 1)
+    one_min_err <- one_min_pred - data[start_pred+30, 'water']
+    one_min_err
+  }}
+
+#5min prediction function, non-linear
+five_min_pred_machine4 <- function(start_pred, len_train, do_plot, objective){
+  #start_pred = index at which you want to start predicting
+  #len_train = how many indices you want to use to predict
+  #do_plot: BOOLEAN, do yu want to plot the prediction?
+  #Objective: 1= error after 5 mins
+  #           2= error after 1 min
+  
+#print(start_pred)
+min_index <- start_pred - len_train
+
+trainrange <- (min_index : start_pred)  #training range
+predrange <- (start_pred: (start_pred + 30))         # +5 minutes
+regrange   <- (min_index: (start_pred + 30))         #both
+
+t_offset <- data[min_index, 'datenum']
+data['t'] = data['datenum'] - t_offset
+
+plinalgo <- nls(water ~ cbind(1, t, t^2, t^3, t^4, sin(2*pi/omg1*t), cos(2*pi/omg1*t), sin(2*pi/omg2*t), cos(2*pi/omg2*t), sin(2*pi/omg3*t), cos(2*pi/omg3*t)), data = data[trainrange,], start = c(omg1=545, omg2=205, omg3=85), algorithm = 'plinear', control = nls.control(maxiter = 500, warnOnly = TRUE) )
+
+if (do_plot == TRUE){
+print(summary(plinalgo))
+  
+# Plot the extrapolation of the data
+plot(data[regrange,'datetime'], data[regrange, 'water'], type = "l", col = "blue", 
+ xlab = "Time (h)", ylab = "Water Level (cm)", main = "5 minute prediction non-Linear Regression Model")
+lines(data[regrange,'datetime'], predict(plinalgo, data[regrange,]), col = "red")
+abline(v = t_offset + 10*(len_train) , col = "yellow", lwd = 2, lty = 2)
+legend("topleft", legend = c("Observed", "Fitted", "Train Data End"), 
+   col = c("blue", "red", "yellow"), lty = c(1,1,2), cex = 0.8)}
+  
+if (objective == 1){ #err after 5
+    five_min_pred <- tail(predict(plinalgo, data[regrange,]), 1)
+    five_min_err <- five_min_pred - data[start_pred+30, 'water']
+    five_min_err
+  } else if (objective == 2){ #err after 1
+    one_min_pred <- head(tail(predict(plinalgo, data[regrange,]), 21), 1)
+    one_min_err <- one_min_pred - data[start_pred+30, 'water']
+    one_min_err
+  }}
+
+#5min prediction function, non-linear seprate
+five_min_pred_machine5 <- function(start_pred, len_train, do_plot, objective){
+  #start_pred = index at which you want to start predicting
+  #len_train = how many indices you want to use to predict
+  #do_plot: BOOLEAN, do yu want to plot the prediction?
+  #Objective: 1= error after 5 mins
+  #           2= error after 1 min
+  
+#print(start_pred)
+min_index <- start_pred - len_train
+
+trainrange <- (min_index : start_pred)  #training range
+predrange <- (start_pred: (start_pred + 30))         # +5 minutes
+regrange   <- (min_index: (start_pred + 30))         #both
+
+t_offset <- data[min_index, 'datenum']
+data['t'] = data['datenum'] - t_offset
+
+nl_osci <- nls(oscillations ~ cbind(1, sin(2*pi/omg1*t), cos(2*pi/omg1*t), sin(2*pi/omg2*t), cos(2*pi/omg2*t), sin(2*pi/omg3*t), cos(2*pi/omg3*t)), data = data[trainrange,], start = c(omg1=545, omg2=205, omg3=85), algorithm = 'plinear', control = nls.control(maxiter = 500, warnOnly = TRUE) )
+
+nl_trend  <- glm(conv10m ~ I(t) + I(t^2) + I(t^3) + I(t^4) , data = data[trainrange, ])
+
+if (do_plot == TRUE){
+  
+print(summary(nl_osci))
+print(summary(nl_trend))
+# Plot the extrapolation of the data
+plot(data[regrange,'datetime'], data[regrange, 'water'], type = "l", col = "blue", 
+ xlab = "Time (h)", ylab = "Water Level (cm)", main = "5 minute prediction non-Linear Regression Model (separate)")
+lines(data[regrange,'datetime'], predict(nl_osci, data[regrange,]) + predict(nl_trend, data[regrange,]), col = "red")
+abline(v = t_offset + 10*(len_train) , col = "yellow", lwd = 2, lty = 2)
+legend("topleft", legend = c("Observed", "Fitted", "Train Data End"), 
+   col = c("blue", "red", "yellow"), lty = c(1,1,2), cex = 0.8)}
+  
+if (objective == 1){ #err after 5
+    five_min_pred <- tail(predict(nl_osci, data[regrange,]) + predict(nl_trend, data[regrange,]), 1)
+    five_min_err <- five_min_pred - data[start_pred+30, 'water']
+    five_min_err
+  } else if (objective == 2){ #err after 1
+    one_min_pred <- head(tail(predict(nl_osci, data[regrange,]) + predict(nl_trend, data[regrange,]), 21), 1)
+    one_min_err <- one_min_pred - data[start_pred+30, 'water']
+    one_min_err
+  }}
+
+
+```
+
+
+```{r}
+#FIGURE 9
+
+start_pred <-700
+len_train <- 210
+
+
+min_index <- start_pred - len_train
+
+trainrange <- (min_index : start_pred)  #training range
+predrange <- (start_pred: (start_pred + 30))         # +5 minutes
+regrange   <- (min_index: (start_pred + 30))         #both
+
+t_offset <- data[min_index, 'datenum']
+data['t'] = data['datenum'] - t_offset
+
+q4_osci <- glm(oscillations ~  sin(2*pi/545 *t) + cos(2*pi/545 *t)  + sin(2*pi/205 * t) + cos(2*pi/205 *t)  + sin(2*pi/85 *t) + cos(2*pi/85 *t) , data = data[trainrange, ])
+q4_trend <- glm(conv10m ~ I(t) + I(t^2) + I(t^3) + I(t^4) , data = data[trainrange, ])
+
+q4 <- glm(water ~ t + I(t^2) + I(t^3)+ I(t^4) + sin(2*pi/545 *t) + cos(2*pi/545 *t)  + sin(2*pi/205 * t) + cos(2*pi/205 *t)  + sin(2*pi/85 *t) + cos(2*pi/85 *t) , data = data[trainrange, ])
+
+# Plot the extrapolation of the data
+plot(data[regrange,'datetime'], data[regrange, 'water'], type = "l", col = "black", 
+ xlab = "Time (h)", ylab = "Water Level (cm)", main = "5 minute prediction Model comparisons", xaxt = "n")
+lines(data[regrange,'datetime'], predict(q4_trend, data[regrange,]) + predict(q4_osci, data[regrange,]), col = "blue")
+lines(data[regrange,'datetime'], predict(q4, data[regrange,]), col = "red")
+abline(v = t_offset + 10*(len_train) , col = "yellow", lwd = 2, lty = 2)
+legend("topleft", legend = c("Observed", "Fitted (single)", "fitted (separate)", "Train Data End"), 
+col = c("black", "red", "blue", "yellow"), lty = c(1,1,1,1), cex = 0.8)
+
+dates <- seq(data[min_index, 'datetime'], data[start_pred + 30, 'datetime'], by = 60)
+axis.POSIXct(1, at = dates, format = "%H:%M")
+
+```
+
+
+```{r}
+#FIGURE 10a
+
+length_err <- 400
+start_ind <- 700
+trange <- 240
+
+err_vals1 <- c()
+for (start in start_ind:(start_ind + length_err)){
+  err_vals1 <- c(err_vals1,five_min_pred_machine1(start, trange, FALSE, 1) )
+}
+
+err_vals2 <- c()
+for (start in start_ind:(start_ind + length_err)){
+  err_vals2 <- c(err_vals2,five_min_pred_machine2(start, trange, FALSE, 1) )
+}
+
+err_vals3 <- c()
+for (start in start_ind:(start_ind + length_err)){
+  err_vals3 <- c(err_vals3,five_min_pred_machine3(start, trange, FALSE, 1) )
+}
+
+plot(data[((start_ind+30):(start_ind + length_err + 30)),'datetime'], err_vals1, type = "l", col = "red", xlab = "Time (h)", ylab = "err in water Level (cm)", main = "5min prediction error  1/3/2010", ylim=c(-12,12))
+lines(data[((start_ind+30):(start_ind + length_err + 30)),'datetime'],err_vals2, col='blue')
+#lines(data[((start_ind+30):(start_ind + length_err + 30)),'datetime'],err_vals3, col='green')
+legend("topright", legend = c("Separate", "Single"), 
+   col = c("blue", "red"), lty = c(1,1), cex = 0.8)
+
+```
+```{r}
+#TABLE 1
+
+length_err <- 400
+start_ind <- 300
+
+times_compare <- data.frame(matrix(ncol = 0, nrow = length_err+1))
+timess <- list(6, 12, 18, 24, 30, 60, 90, 120, 150, 180, 240, 300)
+
+
+for (times in timess){
+  err_vals4 <- c()
+  for (start in start_ind:(start_ind + length_err)){
+    err_vals4 <- c(err_vals4, five_min_pred_machine2(start+1, times, FALSE, 1) )
+  }
+  times_compare[[paste0("col", times)]] <- err_vals4
+}
+
+summary_table <- do.call(rbind, lapply(abs(times_compare), summary))
+print(summary_table)
+```
+
+
+```{r}
+#FIGURE 10b
+
+x <- data[((start_ind+30):(start_ind + length_err + 30)),'datetime']
+y <- abs(err_vals1) - abs(err_vals2) #accuracy % of v2 against v1
+
+plot(x, y, type = "n", xlab = "Time (h)", ylab = "difference in prediction error (cm)", main = "5min absolute prediction error difference 1/3/2010")
+
+# Iterate through data to create segments
+for (i in 1:(length(x) - 1)) {
+  # Determine the color based on the value of y
+  col <- ifelse(y[i] > 0, "green", "magenta")
+  
+  # Draw the line segment
+  lines(x[i:(i+1)], y[i:(i+1)], col = col)
+}
+legend("bottomright", legend = c("Separate has lower err", "Single has lower err"), 
+   col = c("green", "magenta"), lty = c(1,1), cex = 0.8)
+```
+
+```{r}
+#FIGURE 11
+
+
+#graph both models
+start_pred <-800
+len_train <- 240
+
+min_index <- start_pred - len_train
+
+trainrange <- (min_index : start_pred)  #training range
+predrange <- (start_pred: (start_pred + 30))         # +5 minutes
+regrange   <- (min_index: (start_pred + 30))         #both
+
+t_offset <- data[min_index, 'datenum']
+data['t'] = data['datenum'] - t_offset
+
+q4_osci <- glm(oscillations ~  sin(2*pi/545 *t) + cos(2*pi/545 *t)  + sin(2*pi/205 * t) + cos(2*pi/205 *t)  + sin(2*pi/85 *t) + cos(2*pi/85 *t) , data = data[trainrange, ])
+q4_trend <- glm(conv10m ~ I(t) + I(t^2) + I(t^3) + I(t^4) , data = data[trainrange, ])
+
+plinalgo <- nls(water ~ cbind(1, t, t^2, t^3, t^4, sin(2*pi/omg1*t), cos(2*pi/omg1*t), sin(2*pi/omg2*t), cos(2*pi/omg2*t), sin(2*pi/omg3*t), cos(2*pi/omg3*t)), data = data[trainrange,], start = c(omg1=545, omg2=205, omg3=85), algorithm = 'plinear')
+summary(plinalgo)
+
+# Plot the extrapolation of the data
+plot(data[regrange,'datetime'], data[regrange, 'water'], type = "l", col = "black", 
+ xlab = "Time (h)", ylab = "Water Level (cm)", main = "5 min prediction. Linear and Non-linear model comparison", xaxt = "n")
+lines(data[regrange,'datetime'], predict(q4_trend, data[regrange,]) + predict(q4_osci, data[regrange,]), col = "blue")
+lines(data[regrange,'datetime'], predict(plinalgo, data[regrange,]), col = "red")
+abline(v = t_offset + 10*(len_train) , col = "yellow", lwd = 2, lty = 2)
+legend("topleft", legend = c("Observed", "Linear (separate)", "Non-linear"),
+col = c("black", "red", "blue", "yellow"), lty = c(1,1,1,1), cex = 0.8)
+
+dates <- seq(data[min_index, 'datetime'], data[start_pred + 30, 'datetime'], by = 60)
+axis.POSIXct(1, at = dates, format = "%H:%M")
+```
+
+```{r}
+#FIGURE 12
+
+length_err <- 400
+start_ind <- 700
+trange <- 240
+
+err_vals4 <- c()
+for (start in start_ind:(start_ind + length_err)){
+  err_vals4 <- c(err_vals4,five_min_pred_machine4(start, trange, FALSE, 1) )
+}
+err_vals2 <- c()
+for (start in start_ind:(start_ind + length_err)){
+  err_vals2 <- c(err_vals2,five_min_pred_machine2(start, trange, FALSE, 1) )
+}
+
+x <- data[((start_ind+30):(start_ind + length_err + 30)),'datetime']
+
+
+plot(x, err_vals2, type = "l", col = "red", xlab = "Time (h)", ylab = "err in water Level (cm)", main = "5min prediction error  1/3/2010", ylim=c(-6,6))
+lines(x,err_vals4, col='blue')
+legend("topright", legend = c("linear", "Non-linear"), 
+   col = c("red", "blue"), lty = c(1,1), cex = 0.8)
+
+```
+```{r}
+#FIGURE 13
+
+err_vals5 <- c()
+for (start in start_ind:(start_ind + length_err)){
+  err_vals5 <- c(err_vals5,five_min_pred_machine5(start, trange, FALSE, 1) )
+}
+
+x <- data[((start_ind+30):(start_ind + length_err + 30)),'datetime']
+
+
+plot(x, err_vals5, type = "l", col = "red", xlab = "Time (h)", ylab = "err in water Level (cm)", main = "5min prediction error  1/3/2010")
+lines(x,err_vals2, col='blue')
+legend("topright", legend = c("Non-Linear (separate)", "Linear (separate)"), 
+   col = c("red", "blue"), lty = c(1,1), cex = 0.8)
+
+```
+
+```{r}
+#TABLE 2 & 3
+
+summary(abs(err_vals2)) #lin sep.
+summary(abs(err_vals4)) #non lin
+summary(abs(err_vals5)) #non lin sep.
+```
+
+```{r}
+five_min_pred_machine5(700, 240, TRUE, 1)
+```
+
+
+
+
+
+
+
+
+
